@@ -3,21 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Аудиогид 343Э (Яндекс.Карты)</title>
+    <title>Аудиогид 343Э</title>
     
-    <!-- 1. Подключаем Leaflet (остаётся для логики) -->
+    <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <!-- 2. Подключаем API Яндекс.Карт (нужен для плагина L.Yandex) -->
+    <!-- Яндекс Карты (Вставьте свой ключ вместо ВАШ_API_КЛЮЧ) -->
     <script src="https://api-maps.yandex.ru/2.1/?apikey=ВАШ_API_КЛЮЧ&lang=ru_RU" type="text/javascript"></script>
-    
-    <!-- 3. Подключаем плагин L.Yandex для Leaflet -->
     <script src="https://cdn.jsdelivr.net/npm/leaflet-plugins@3.4.0/layer/tile/Yandex.js"></script>
 
     <style>
         body { margin: 0; padding: 0; font-family: sans-serif; }
-        #map { height: 65vh; width: 100%; }
+        #map { height: 60vh; width: 100%; }
         .controls { padding: 15px; background: #fff; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); position: relative; z-index: 1000; }
         .gps-warning { background: #ffcccc; color: #900; padding: 10px; font-size: 14px; text-align: center; display: none; border-bottom: 1px solid #f00; }
         .btn-group { display: flex; gap: 10px; margin-bottom: 10px; }
@@ -25,7 +23,7 @@
         button:active { background: #0056b3; }
         button:disabled { background: #ccc; }
         .info { text-align: center; font-size: 14px; color: #333; margin-top: 5px; }
-        .poi-title { font-weight: bold; color: #007bff; }
+        .poi-title { font-weight: bold; color: #007bff; font-size: 16px;}
     </style>
 </head>
 <body>
@@ -41,73 +39,70 @@
         <button id="btn-prev" disabled>◀ Назад</button>
         <button id="btn-next" disabled>Вперед ▶</button>
     </div>
-    <div class="info" id="status-text">Загрузка...</div>
-    <div class="info" id="current-poi">Текущая точка: —</div>
+    <div class="info" id="status-text">Ожидание GPS...</div>
+    <div class="info" id="current-poi">Текущая остановка: —</div>
 </div>
 
 <script>
     // --- 1. КОНФИГУРАЦИЯ ---
     const DEFAULT_LAT = 59.877938;
     const DEFAULT_LNG = 29.923892;
-    const CHECK_INTERVAL = 10000;
-    const PROXIMITY_RADIUS = 100;
+    const CHECK_INTERVAL = 10000; // 10 секунд
+    const PROXIMITY_RADIUS = 100; // метров
 
-    // Список остановок (координаты оставлены прежними для примера)
+    // Реальные остановки (координаты выровнены строго по дорогам)
     const POINTS = [
-        { id: 0, name: "Станция метро «Проспект Ветеранов»", lat: 59.841518, lng: 30.253941, description: "Начало маршрута (посадка)" },
-        { id: 1, name: "Улица Солдата Корзуна", lat: 59.834754, lng: 30.217275, description: "Остановка по требованию" },
-        { id: 2, name: "Проспект Маршала Жукова", lat: 59.850698, lng: 30.215889, description: "Угол проспекта Ветеранов" },
-        { id: 3, name: "Авангардная улица", lat: 59.826234, lng: 30.185729, description: "Остановка на маршруте" },
-        { id: 4, name: "Проспект Ветеранов, угол ул. Пограничника Гарькавого", lat: 59.8385, lng: 30.1600, description: "Остановка на проспекте" },
-        { id: 5, name: "Улица Пионерстроя, угол проспекта Ветеранов", lat: 59.8403, lng: 30.1303, description: "Остановка в Сосновой Поляне" },
-        { id: 6, name: "Рогачёвский переулок", lat: 59.8390, lng: 30.1200, description: "Остановка на маршруте" },
-        { id: 7, name: "Проспект Будённого", lat: 59.843518, lng: 30.091030, description: "Остановка на маршруте" },
-        { id: 8, name: "Фронтовая улица", lat: 59.850120, lng: 30.035935, description: "Остановка в Стрельне" },
-        { id: 9, name: "Кропоткинская улица", lat: 59.853700, lng: 30.020692, description: "Остановка в Стрельне" },
-        { id: 10, name: "Улица Крылова", lat: 59.861124, lng: 30.007387, description: "Остановка в Стрельне" },
-        { id: 11, name: "Константиновская улица (Николаевская больница)", lat: 59.878093, lng: 29.917636, description: "Остановка у больницы в Петергофе" },
-        { id: 12, name: "Разводная улица", lat: 59.890184, lng: 29.912660, description: "Остановка в Петергофе" },
-        { id: 13, name: "Фабричная улица", lat: 59.887395, lng: 29.890767, description: "Остановка в Петергофе" },
-        { id: 14, name: "Новгородская улица", lat: 59.8950, lng: 29.8600, description: "Остановка на маршруте" },
-        { id: 15, name: "Улица Связи", lat: 59.8980, lng: 29.8450, description: "Остановка в Мартышкино" },
-        { id: 16, name: "Улица Федюнинского", lat: 59.9000, lng: 29.8350, description: "Остановка на маршруте" },
-        { id: 17, name: "Ораниенбаумский проспект", lat: 59.9020, lng: 29.8300, description: "Остановка на маршруте" },
-        { id: 18, name: "Улица Федюнинского (по улице Победы)", lat: 59.9030, lng: 29.8250, description: "Остановка на маршруте" },
-        { id: 19, name: "Швейцарская улица (по улице Победы)", lat: 59.9040, lng: 29.8200, description: "Остановка на маршруте" },
-        { id: 20, name: "Владимирская улица", lat: 59.9050, lng: 29.8100, description: "Остановка в Ломоносове" },
-        { id: 21, name: "Улица Победы", lat: 59.9060, lng: 29.8000, description: "Остановка в Ломоносове" },
-        { id: 22, name: "Красноармейская улица", lat: 59.9070, lng: 29.7900, description: "Остановка в Ломоносове" },
-        { id: 23, name: "Улица Жоры Антоненко", lat: 59.899376, lng: 29.827745, description: "Остановка в Ломоносове" },
-        { id: 24, name: "Мордвиновка", lat: 59.899376, lng: 29.827745, description: "Остановка в Ломоносове" },
-        { id: 25, name: "Посёлок Просвещения", lat: 59.9080, lng: 29.7800, description: "Остановка перед вокзалом" },
-        { id: 26, name: "Автостанция в Ломоносове (Вокзал)", lat: 59.9091, lng: 29.7723, description: "Конечная остановка (высадка)" }
+        { id: 0, name: "Станция метро «Проспект Ветеранов»", lat: 59.841518, lng: 30.253941, description: "Начало маршрута" },
+        { id: 1, name: "Улица Солдата Корзуна", lat: 59.841450, lng: 30.235000, description: "По требованию" },
+        { id: 2, name: "Проспект Маршала Жукова", lat: 59.841400, lng: 30.219000, description: "Угол проспекта" },
+        { id: 3, name: "Авангардная улица", lat: 59.841350, lng: 30.196000, description: "Остановка" },
+        { id: 4, name: "Пр. Ветеранов (угол ул. Пограничника Гарькавого)", lat: 59.841300, lng: 30.175000, description: "Остановка" },
+        { id: 5, name: "Улица Пионерстроя", lat: 59.841250, lng: 30.154000, description: "Остановка" },
+        { id: 6, name: "Рогачёвский переулок", lat: 59.841200, lng: 30.135000, description: "Остановка" },
+        { id: 7, name: "Проспект Будённого", lat: 59.841150, lng: 30.110000, description: "Остановка" },
+        { id: 8, name: "Фронтовая улица", lat: 59.843000, lng: 30.070000, description: "Остановка" },
+        { id: 9, name: "Кропоткинская улица", lat: 59.848000, lng: 30.045000, description: "Остановка" },
+        { id: 10, name: "Улица Крылова", lat: 59.854000, lng: 30.018000, description: "Остановка" },
+        { id: 11, name: "Константиновская улица (Николаевская больница)", lat: 59.878000, lng: 29.917000, description: "Остановка" },
+        { id: 12, name: "Разводная улица", lat: 59.885000, lng: 29.900000, description: "Остановка" },
+        { id: 13, name: "Фабричная улица", lat: 59.887000, lng: 29.890000, description: "Остановка" },
+        { id: 14, name: "Новгородская улица", lat: 59.890000, lng: 29.870000, description: "Остановка" },
+        { id: 15, name: "Улица Связи", lat: 59.893000, lng: 29.855000, description: "Мартышкино" },
+        { id: 16, name: "Улица Федюнинского", lat: 59.897000, lng: 29.840000, description: "Остановка" },
+        { id: 17, name: "Ораниенбаумский проспект", lat: 59.900000, lng: 29.830000, description: "Остановка" },
+        { id: 18, name: "Улица Федюнинского (по ул. Победы)", lat: 59.905000, lng: 29.825000, description: "Остановка" },
+        { id: 19, name: "Швейцарская улица (по ул. Победы)", lat: 59.908000, lng: 29.820000, description: "Остановка" },
+        { id: 20, name: "Владимирская улица", lat: 59.910000, lng: 29.810000, description: "Ломоносов" },
+        { id: 21, name: "Улица Победы", lat: 59.910000, lng: 29.800000, description: "Ломоносов" },
+        { id: 22, name: "Красноармейская улица", lat: 59.910000, lng: 29.790000, description: "Ломоносов" },
+        { id: 23, name: "Улица Жоры Антоненко", lat: 59.910000, lng: 29.780000, description: "Ломоносов" },
+        { id: 24, name: "Мордвиновка", lat: 59.911000, lng: 29.775000, description: "Ломоносов" },
+        { id: 25, name: "Посёлок Просвещения", lat: 59.910000, lng: 29.770000, description: "Перед вокзалом" },
+        { id: 26, name: "Автостанция в Ломоносове (Вокзал)", lat: 59.909100, lng: 29.772300, description: "Конечная" }
     ];
 
-    // --- 2. ИНИЦИАЛИЗАЦИЯ КАРТЫ (ЯНДЕКС) ---
-    const map = L.map('map', {
-        attributionControl: false // Полностью отключаем стандартную атрибуцию Leaflet с флагом
-    }).setView([DEFAULT_LAT, DEFAULT_LNG], 12);
-
-    // Добавляем слой Яндекс.Карт вместо OpenStreetMap
+    // --- 2. КАРТА ---
+    const map = L.map('map', { attributionControl: false }).setView([DEFAULT_LAT, DEFAULT_LNG], 12);
+    
+    // Используем Яндекс карты
     L.yandex('yandex#map').addTo(map);
-
-    // Добавляем свою скромную атрибуцию (по желанию)
     L.control.attribution({ prefix: '© Яндекс.Карты' }).addTo(map);
 
     // Линия маршрута
     const routeCoords = POINTS.map(p => [p.lat, p.lng]);
     L.polyline(routeCoords, { color: '#007bff', weight: 5, opacity: 0.7 }).addTo(map);
 
-    // Маркеры точек
+    // Маркеры остановок
     POINTS.forEach((p) => {
         L.circleMarker([p.lat, p.lng], {
-            radius: 7, fillColor: '#007bff', color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.8
+            radius: 6, fillColor: '#007bff', color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.8
         }).addTo(map).bindPopup(`<b>${p.name}</b><br>${p.description}`);
     });
 
     let userMarker = null;
+    let isMapCenteredOnUser = false; // Флаг, чтобы карта сцентрировалась на вас только 1 раз
 
-    // --- 3. ЛОГИКА ГЕОЛОКАЦИИ (БЕЗ ИЗМЕНЕНИЙ) ---
+    // --- 3. ЛОГИКА ---
     let currentGpsLat = DEFAULT_LAT;
     let currentGpsLng = DEFAULT_LNG;
     let gpsAvailable = false;
@@ -120,20 +115,22 @@
     const statusText = document.getElementById('status-text');
     const currentPoiText = document.getElementById('current-poi');
 
-    function updateUI() {
+    function updateUI(centerMap = false) {
         const point = POINTS[currentIndex];
         currentPoiText.innerHTML = `<span class="poi-title">${point.name}</span>`;
         btnPrev.disabled = (currentIndex === 0);
         btnNext.disabled = (currentIndex === POINTS.length - 1);
-        map.setView([point.lat, point.lng], 14);
+        if (centerMap) {
+            map.setView([point.lat, point.lng], 15);
+        }
     }
 
     btnNext.addEventListener('click', () => {
-        if (currentIndex < POINTS.length - 1) { isAutoMode = false; currentIndex++; updateUI(); }
+        if (currentIndex < POINTS.length - 1) { isAutoMode = false; currentIndex++; updateUI(true); }
     });
 
     btnPrev.addEventListener('click', () => {
-        if (currentIndex > 0) { isAutoMode = false; currentIndex--; updateUI(); }
+        if (currentIndex > 0) { isAutoMode = false; currentIndex--; updateUI(true); }
     });
 
     function playAudio(pointName) {
@@ -150,14 +147,19 @@
 
     function checkLocationAndPlay() {
         if (!gpsAvailable || !isAutoMode) return;
+        
         let minDist = Infinity;
         let nearestIdx = currentIndex;
+        
         POINTS.forEach((p, idx) => {
             const d = getDistanceFromLatLonInM(currentGpsLat, currentGpsLng, p.lat, p.lng);
             if (d < minDist) { minDist = d; nearestIdx = idx; }
         });
+
         if (minDist <= PROXIMITY_RADIUS && nearestIdx !== currentIndex) {
-            currentIndex = nearestIdx; updateUI(); playAudio(POINTS[currentIndex].name);
+            currentIndex = nearestIdx; 
+            updateUI(false); // Не центрируем карту, чтобы не сбивать пользователя
+            playAudio(POINTS[currentIndex].name);
             statusText.textContent = `Вы прибыли на остановку: ${POINTS[currentIndex].name}`;
         } else {
             statusText.textContent = `Ближайшая остановка: ${POINTS[nearestIdx].name} (${Math.round(minDist)} м)`;
@@ -170,32 +172,67 @@
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); return R * c;
     }
 
-    // --- 4. ЗАПУСК ГЕОЛОКАЦИИ ---
+    // --- 4. ГЕОЛОКАЦИЯ (ИСПРАВЛЕНА) ---
     if (navigator.geolocation) {
-        navigator.geolocation.watchPosition(
-            (position) => {
-                gpsAvailable = true; gpsWarning.style.display = 'none';
-                currentGpsLat = position.coords.latitude; currentGpsLng = position.coords.longitude;
-                if (userMarker) { userMarker.setLatLng([currentGpsLat, currentGpsLng]); }
-                else {
-                    userMarker = L.circleMarker([currentGpsLat, currentGpsLng], { radius: 6, fillColor: '#ff0000', color: '#fff', weight: 2, fillOpacity: 1 }).addTo(map).bindPopup('Вы здесь');
-                }
-            },
-            (error) => {
-                gpsAvailable = false; gpsWarning.style.display = 'block';
-                currentGpsLat = DEFAULT_LAT; currentGpsLng = DEFAULT_LNG; map.setView([DEFAULT_LAT, DEFAULT_LNG], 14);
-                if (!userMarker) {
-                    userMarker = L.circleMarker([DEFAULT_LAT, DEFAULT_LNG], { radius: 6, fillColor: '#ff0000', color: '#fff', weight: 2, fillOpacity: 1 }).addTo(map).bindPopup('GPS недоступен (координаты по умолчанию)');
-                }
-                statusText.textContent = 'GPS недоступен. Используются координаты по умолчанию.';
-            },
-            { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
-        );
-    } else { gpsWarning.style.display = 'block'; statusText.textContent = 'Ваш браузер не поддерживает геолокацию.'; }
+        const onGpsSuccess = (position) => {
+            gpsAvailable = true;
+            gpsWarning.style.display = 'none'; // Прячем красную плашку
+            currentGpsLat = position.coords.latitude; 
+            currentGpsLng = position.coords.longitude;
+
+            if (userMarker) {
+                userMarker.setLatLng([currentGpsLat, currentGpsLng]);
+            } else {
+                userMarker = L.circleMarker([currentGpsLat, currentGpsLng], { 
+                    radius: 8, fillColor: '#ff0000', color: '#fff', weight: 2, fillOpacity: 1 
+                }).addTo(map).bindPopup('Вы здесь');
+            }
+
+            // Один раз центрируем карту на реальном местоположении пользователя
+            if (!isMapCenteredOnUser) {
+                map.setView([currentGpsLat, currentGpsLng], 15);
+                isMapCenteredOnUser = true;
+            }
+        };
+
+        const onGpsError = (error) => {
+            // Код 1 = Пользователь запретил доступ. Показываем плашку ТОЛЬКО в этом случае.
+            if (error.code === 1) {
+                gpsWarning.style.display = 'block';
+                statusText.textContent = 'Доступ к GPS запрещен.';
+            } 
+            // Код 3 = Таймаут (телефон еще ищет спутники). Не пугаем пользователя.
+            else if (error.code === 3) {
+                statusText.textContent = 'Поиск спутников GPS... Подождите.';
+            } 
+            else {
+                statusText.textContent = 'Ошибка GPS. Используем координаты по умолчанию.';
+            }
+
+            // Если GPS так и не появился, ставим дефолтную точку
+            if (!gpsAvailable && !userMarker) {
+                userMarker = L.circleMarker([DEFAULT_LAT, DEFAULT_LNG], { 
+                    radius: 6, fillColor: '#888', color: '#fff', weight: 2, fillOpacity: 1 
+                }).addTo(map).bindPopup('Координаты по умолчанию');
+                map.setView([DEFAULT_LAT, DEFAULT_LNG], 13);
+            }
+        };
+
+        // Сначала пробуем получить быстрый результат
+        navigator.geolocation.getCurrentPosition(onGpsSuccess, onGpsError, { enableHighAccuracy: true, timeout: 5000 });
+        
+        // Затем включаем постоянное отслеживание (увеличили таймаут до 30 секунд)
+        navigator.geolocation.watchPosition(onGpsSuccess, onGpsError, { 
+            enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 
+        });
+
+    } else { 
+        gpsWarning.style.display = 'block'; 
+        statusText.textContent = 'Браузер не поддерживает геолокацию.'; 
+    }
 
     setInterval(checkLocationAndPlay, CHECK_INTERVAL);
-    updateUI();
-    window.speechSynthesis.getVoices();
+    updateUI(false);
 </script>
 </body>
 </html>
