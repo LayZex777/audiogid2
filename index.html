@@ -24,6 +24,8 @@
         button:disabled { background: #ccc; }
         .info { text-align: center; font-size: 14px; color: #333; margin-top: 5px; }
         .poi-title { font-weight: bold; color: #007bff; font-size: 16px;}
+        .play-btn { background: #28a745; margin-top: 10px; }
+        .play-btn:active { background: #218838; }
     </style>
 </head>
 <body>
@@ -41,6 +43,8 @@
     </div>
     <div class="info" id="status-text">Ожидание GPS...</div>
     <div class="info" id="current-poi">Текущая остановка: —</div>
+    <!-- Кнопка для ручного запуска аудио, если нужно переслушать -->
+    <button id="btn-play-manual" class="play-btn" style="width: 100%;">▶ Прослушать экскурсию</button>
 </div>
 
 <script>
@@ -50,7 +54,7 @@
     const CHECK_INTERVAL = 10000; // 10 секунд
     const PROXIMITY_RADIUS = 100; // метров
 
-    // Реальные остановки (координаты выровнены строго по дорогам)
+    // Остановки (координаты выровнены по дорогам)
     const POINTS = [
         { id: 0, name: "Станция метро «Проспект Ветеранов»", lat: 59.841518, lng: 30.253941, description: "Начало маршрута" },
         { id: 1, name: "Улица Солдата Корзуна", lat: 59.841450, lng: 30.235000, description: "По требованию" },
@@ -81,10 +85,39 @@
         { id: 26, name: "Автостанция в Ломоносове (Вокзал)", lat: 59.909100, lng: 29.772300, description: "Конечная" }
     ];
 
-    // --- 2. КАРТА ---
+    // --- 2. АУДИОПЛЕЕР ---
+    // Создаем один объект Audio, который будем переиспользовать
+    const audioPlayer = new Audio();
+    
+    // Функция воспроизведения
+    function playAudio(index) {
+        // Останавливаем текущее аудио, если играет
+        audioPlayer.pause();
+        audioPlayer.currentTime = 0;
+        
+        // Формируем путь: папка audio, файл (index+1).mp3
+        const trackNumber = index + 1;
+        audioPlayer.src = `audio/${trackNumber}.mp3`;
+        
+        // Запускаем воспроизведение. 
+        // .catch нужен, чтобы браузер не выдавал ошибку, если файл не найден
+        audioPlayer.play().catch(e => {
+            console.warn(`Аудиофайл audio/${trackNumber}.mp3 не найден или заблокирован браузером.`, e);
+            statusText.textContent = `Файл audio/${trackNumber}.mp3 не найден.`;
+        });
+
+        statusText.textContent = `Воспроизведение: ${POINTS[index].name}`;
+    }
+
+    // Кнопка ручного запуска (если пользователь хочет переслушать)
+    document.getElementById('btn-play-manual').addEventListener('click', () => {
+        playAudio(currentIndex);
+    });
+
+    // --- 3. КАРТА ---
     const map = L.map('map', { attributionControl: false }).setView([DEFAULT_LAT, DEFAULT_LNG], 12);
     
-    // Используем Яндекс карты
+    // Используем Яндекс карты (ключ должен быть указан в <head>)
     L.yandex('yandex#map').addTo(map);
     L.control.attribution({ prefix: '© Яндекс.Карты' }).addTo(map);
 
@@ -100,9 +133,9 @@
     });
 
     let userMarker = null;
-    let isMapCenteredOnUser = false; // Флаг, чтобы карта сцентрировалась на вас только 1 раз
+    let isMapCenteredOnUser = false;
 
-    // --- 3. ЛОГИКА ---
+    // --- 4. ЛОГИКА ---
     let currentGpsLat = DEFAULT_LAT;
     let currentGpsLng = DEFAULT_LNG;
     let gpsAvailable = false;
@@ -126,24 +159,22 @@
     }
 
     btnNext.addEventListener('click', () => {
-        if (currentIndex < POINTS.length - 1) { isAutoMode = false; currentIndex++; updateUI(true); }
+        if (currentIndex < POINTS.length - 1) { 
+            isAutoMode = false; 
+            currentIndex++; 
+            updateUI(true); 
+            playAudio(currentIndex); // Включаем аудио при переходе вручную
+        }
     });
 
     btnPrev.addEventListener('click', () => {
-        if (currentIndex > 0) { isAutoMode = false; currentIndex--; updateUI(true); }
-    });
-
-    function playAudio(pointName) {
-        if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(pointName);
-            utterance.lang = 'ru-RU'; utterance.rate = 0.9;
-            const voices = window.speechSynthesis.getVoices();
-            const femaleVoice = voices.find(v => v.lang.includes('ru') && v.name.toLowerCase().includes('female')) || voices.find(v => v.lang.includes('ru'));
-            if (femaleVoice) utterance.voice = femaleVoice;
-            window.speechSynthesis.speak(utterance);
+        if (currentIndex > 0) { 
+            isAutoMode = false; 
+            currentIndex--; 
+            updateUI(true); 
+            playAudio(currentIndex); // Включаем аудио при переходе вручную
         }
-    }
+    });
 
     function checkLocationAndPlay() {
         if (!gpsAvailable || !isAutoMode) return;
@@ -158,8 +189,8 @@
 
         if (minDist <= PROXIMITY_RADIUS && nearestIdx !== currentIndex) {
             currentIndex = nearestIdx; 
-            updateUI(false); // Не центрируем карту, чтобы не сбивать пользователя
-            playAudio(POINTS[currentIndex].name);
+            updateUI(false); 
+            playAudio(currentIndex); // Автоматически включаем аудио при прибытии
             statusText.textContent = `Вы прибыли на остановку: ${POINTS[currentIndex].name}`;
         } else {
             statusText.textContent = `Ближайшая остановка: ${POINTS[nearestIdx].name} (${Math.round(minDist)} м)`;
@@ -172,11 +203,11 @@
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); return R * c;
     }
 
-    // --- 4. ГЕОЛОКАЦИЯ (ИСПРАВЛЕНА) ---
+    // --- 5. ГЕОЛОКАЦИЯ ---
     if (navigator.geolocation) {
         const onGpsSuccess = (position) => {
             gpsAvailable = true;
-            gpsWarning.style.display = 'none'; // Прячем красную плашку
+            gpsWarning.style.display = 'none';
             currentGpsLat = position.coords.latitude; 
             currentGpsLng = position.coords.longitude;
 
@@ -188,7 +219,6 @@
                 }).addTo(map).bindPopup('Вы здесь');
             }
 
-            // Один раз центрируем карту на реальном местоположении пользователя
             if (!isMapCenteredOnUser) {
                 map.setView([currentGpsLat, currentGpsLng], 15);
                 isMapCenteredOnUser = true;
@@ -196,20 +226,15 @@
         };
 
         const onGpsError = (error) => {
-            // Код 1 = Пользователь запретил доступ. Показываем плашку ТОЛЬКО в этом случае.
             if (error.code === 1) {
                 gpsWarning.style.display = 'block';
                 statusText.textContent = 'Доступ к GPS запрещен.';
-            } 
-            // Код 3 = Таймаут (телефон еще ищет спутники). Не пугаем пользователя.
-            else if (error.code === 3) {
+            } else if (error.code === 3) {
                 statusText.textContent = 'Поиск спутников GPS... Подождите.';
-            } 
-            else {
+            } else {
                 statusText.textContent = 'Ошибка GPS. Используем координаты по умолчанию.';
             }
 
-            // Если GPS так и не появился, ставим дефолтную точку
             if (!gpsAvailable && !userMarker) {
                 userMarker = L.circleMarker([DEFAULT_LAT, DEFAULT_LNG], { 
                     radius: 6, fillColor: '#888', color: '#fff', weight: 2, fillOpacity: 1 
@@ -218,14 +243,8 @@
             }
         };
 
-        // Сначала пробуем получить быстрый результат
         navigator.geolocation.getCurrentPosition(onGpsSuccess, onGpsError, { enableHighAccuracy: true, timeout: 5000 });
-        
-        // Затем включаем постоянное отслеживание (увеличили таймаут до 30 секунд)
-        navigator.geolocation.watchPosition(onGpsSuccess, onGpsError, { 
-            enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 
-        });
-
+        navigator.geolocation.watchPosition(onGpsSuccess, onGpsError, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
     } else { 
         gpsWarning.style.display = 'block'; 
         statusText.textContent = 'Браузер не поддерживает геолокацию.'; 
