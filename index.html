@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <!-- Яндекс Карты (Вставьте свой ключ вместо ВАШ_API_КЛЮЧ) -->
+    <!-- Яндекс Карты (ВСТАВЬТЕ СВОЙ КЛЮЧ ВМЕСТО ВАШ_API_КЛЮЧ) -->
     <script src="https://api-maps.yandex.ru/2.1/?apikey=ВАШ_API_КЛЮЧ&lang=ru_RU" type="text/javascript"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-plugins@3.4.0/layer/tile/Yandex.js"></script>
 
@@ -26,6 +26,20 @@
         .poi-title { font-weight: bold; color: #007bff; font-size: 16px;}
         .play-btn { background: #28a745; margin-top: 10px; }
         .play-btn:active { background: #218838; }
+        
+        .number-icon {
+            background-color: #007bff;
+            color: white;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+            text-align: center;
+            font-weight: bold;
+            font-size: 13px;
+            line-height: 22px;
+            width: 22px;
+            height: 22px;
+        }
     </style>
 </head>
 <body>
@@ -43,18 +57,15 @@
     </div>
     <div class="info" id="status-text">Ожидание GPS...</div>
     <div class="info" id="current-poi">Текущая остановка: —</div>
-    <!-- Кнопка для ручного запуска аудио, если нужно переслушать -->
     <button id="btn-play-manual" class="play-btn" style="width: 100%;">▶ Прослушать экскурсию</button>
 </div>
 
 <script>
-    // --- 1. КОНФИГУРАЦИЯ ---
     const DEFAULT_LAT = 59.877938;
     const DEFAULT_LNG = 29.923892;
     const CHECK_INTERVAL = 10000; // 10 секунд
-    const PROXIMITY_RADIUS = 100; // метров
+    const TRIGGER_RADIUS = 500; // Срабатывание за 500 метров до остановки (чтобы не пропустить на скорости)
 
-    // Остановки (координаты выровнены по дорогам)
     const POINTS = [
         { id: 0, name: "Станция метро «Проспект Ветеранов»", lat: 59.841518, lng: 30.253941, description: "Начало маршрута" },
         { id: 1, name: "Улица Солдата Корзуна", lat: 59.841450, lng: 30.235000, description: "По требованию" },
@@ -85,57 +96,48 @@
         { id: 26, name: "Автостанция в Ломоносове (Вокзал)", lat: 59.909100, lng: 29.772300, description: "Конечная" }
     ];
 
-    // --- 2. АУДИОПЛЕЕР ---
-    // Создаем один объект Audio, который будем переиспользовать
     const audioPlayer = new Audio();
     
-    // Функция воспроизведения
     function playAudio(index) {
-        // Останавливаем текущее аудио, если играет
         audioPlayer.pause();
         audioPlayer.currentTime = 0;
-        
-        // Формируем путь: папка audio, файл (index+1).mp3
         const trackNumber = index + 1;
         audioPlayer.src = `audio/${trackNumber}.mp3`;
         
-        // Запускаем воспроизведение. 
-        // .catch нужен, чтобы браузер не выдавал ошибку, если файл не найден
         audioPlayer.play().catch(e => {
             console.warn(`Аудиофайл audio/${trackNumber}.mp3 не найден или заблокирован браузером.`, e);
             statusText.textContent = `Файл audio/${trackNumber}.mp3 не найден.`;
         });
-
         statusText.textContent = `Воспроизведение: ${POINTS[index].name}`;
     }
 
-    // Кнопка ручного запуска (если пользователь хочет переслушать)
     document.getElementById('btn-play-manual').addEventListener('click', () => {
         playAudio(currentIndex);
     });
 
-    // --- 3. КАРТА ---
     const map = L.map('map', { attributionControl: false }).setView([DEFAULT_LAT, DEFAULT_LNG], 12);
-    
-    // Используем Яндекс карты (ключ должен быть указан в <head>)
     L.yandex('yandex#map').addTo(map);
     L.control.attribution({ prefix: '© Яндекс.Карты' }).addTo(map);
 
-    // Линия маршрута
     const routeCoords = POINTS.map(p => [p.lat, p.lng]);
     L.polyline(routeCoords, { color: '#007bff', weight: 5, opacity: 0.7 }).addTo(map);
 
-    // Маркеры остановок
     POINTS.forEach((p) => {
-        L.circleMarker([p.lat, p.lng], {
-            radius: 6, fillColor: '#007bff', color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.8
-        }).addTo(map).bindPopup(`<b>${p.name}</b><br>${p.description}`);
+        const numberIcon = L.divIcon({
+            className: 'number-icon',
+            html: (p.id + 1).toString(),
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+            popupAnchor: [0, -13]
+        });
+        L.marker([p.lat, p.lng], { icon: numberIcon })
+            .addTo(map)
+            .bindPopup(`<b>Остановка ${p.id + 1}. ${p.name}</b><br>${p.description}`);
     });
 
     let userMarker = null;
     let isMapCenteredOnUser = false;
 
-    // --- 4. ЛОГИКА ---
     let currentGpsLat = DEFAULT_LAT;
     let currentGpsLng = DEFAULT_LNG;
     let gpsAvailable = false;
@@ -150,50 +152,46 @@
 
     function updateUI(centerMap = false) {
         const point = POINTS[currentIndex];
-        currentPoiText.innerHTML = `<span class="poi-title">${point.name}</span>`;
+        currentPoiText.innerHTML = `<span class="poi-title">${point.id + 1}. ${point.name}</span>`;
         btnPrev.disabled = (currentIndex === 0);
         btnNext.disabled = (currentIndex === POINTS.length - 1);
-        if (centerMap) {
-            map.setView([point.lat, point.lng], 15);
-        }
+        if (centerMap) map.setView([point.lat, point.lng], 15);
     }
 
     btnNext.addEventListener('click', () => {
         if (currentIndex < POINTS.length - 1) { 
-            isAutoMode = false; 
-            currentIndex++; 
-            updateUI(true); 
-            playAudio(currentIndex); // Включаем аудио при переходе вручную
+            isAutoMode = false; currentIndex++; updateUI(true); playAudio(currentIndex);
         }
     });
 
     btnPrev.addEventListener('click', () => {
         if (currentIndex > 0) { 
-            isAutoMode = false; 
-            currentIndex--; 
-            updateUI(true); 
-            playAudio(currentIndex); // Включаем аудио при переходе вручную
+            isAutoMode = false; currentIndex--; updateUI(true); playAudio(currentIndex);
         }
     });
 
+    // НОВАЯ ЛОГИКА ОПРЕДЕЛЕНИЯ БЛИЖАЙШЕЙ ОСТАНОВКИ
     function checkLocationAndPlay() {
         if (!gpsAvailable || !isAutoMode) return;
         
         let minDist = Infinity;
         let nearestIdx = currentIndex;
         
+        // Ищем остановку, которая сейчас ближе всего к пользователю
         POINTS.forEach((p, idx) => {
             const d = getDistanceFromLatLonInM(currentGpsLat, currentGpsLng, p.lat, p.lng);
             if (d < minDist) { minDist = d; nearestIdx = idx; }
         });
 
-        if (minDist <= PROXIMITY_RADIUS && nearestIdx !== currentIndex) {
+        // Если ближайшая остановка изменилась (мы проехали одну и приближаемся к следующей)
+        // и мы находимся в разумных пределах (до 500 метров), чтобы не включать звук, находясь далеко от маршрута
+        if (nearestIdx !== currentIndex && minDist <= TRIGGER_RADIUS) {
             currentIndex = nearestIdx; 
             updateUI(false); 
-            playAudio(currentIndex); // Автоматически включаем аудио при прибытии
-            statusText.textContent = `Вы прибыли на остановку: ${POINTS[currentIndex].name}`;
+            playAudio(currentIndex); // Включаем аудио
+            statusText.textContent = `Приближаемся к остановке ${currentIndex + 1}: ${POINTS[currentIndex].name}`;
         } else {
-            statusText.textContent = `Ближайшая остановка: ${POINTS[nearestIdx].name} (${Math.round(minDist)} м)`;
+            statusText.textContent = `Ближайшая остановка: ${nearestIdx + 1}. ${POINTS[nearestIdx].name} (${Math.round(minDist)} м)`;
         }
     }
 
@@ -203,7 +201,6 @@
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); return R * c;
     }
 
-    // --- 5. ГЕОЛОКАЦИЯ ---
     if (navigator.geolocation) {
         const onGpsSuccess = (position) => {
             gpsAvailable = true;
